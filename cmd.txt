@@ -1,0 +1,5 @@
+clang++ -g -O3 toy.cpp
+
+./a.out
+
+./a.out < test.txt

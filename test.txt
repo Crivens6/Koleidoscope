@@ -1,0 +1,5 @@
+def foo(x y) x+foo(y, 40.0);
+def boo(x y) x+y / y;
+def loo(x y) x+y - boo(6.3, y);
+extern cos(k);
+def goo(a b c) a<b+a>c*30/65+34*b;
