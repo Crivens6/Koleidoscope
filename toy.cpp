@@ -1,3 +1,4 @@
+#include "include/KaleidoscopeJIT.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/BasicBlock.h"
@@ -7,10 +8,22 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/Passes/StandardInstrumentations.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Transforms/Scalar/Reassociate.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include <algorithm>
+#include <cassert>
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -19,7 +32,7 @@
 #include <vector>
 
 using namespace llvm;
-
+using namespace llvm::orc;
 /////////////////////////////////////////////////////////////// Lexer
 
 // Will return tokens [0 - 255] if unknown character, else it will return one of these
@@ -456,6 +469,17 @@ static std::unique_ptr<LLVMContext> TheContext;
 static std::unique_ptr<IRBuilder<>> Builder;
 static std::unique_ptr<Module> TheModule;
 static std::map<std::string, Value *> NamedValues;
+static std::unique_ptr<KaleidoscopeJIT> TheJIT;
+static std::unique_ptr<FunctionPassManager> TheFPM;
+static std::unique_ptr<LoopAnalysisManager> TheLAM;
+static std::unique_ptr<FunctionAnalysisManager> TheFAM;
+static std::unique_ptr<CGSCCAnalysisManager> TheCGAM;
+static std::unique_ptr<ModuleAnalysisManager> TheMAM;
+static std::unique_ptr<PassInstrumentationCallbacks> ThePIC;
+static std::unique_ptr<StandardInstrumentations> TheSI;
+static std::map<std::string, std::unique_ptr<PrototypeAST>> FunctionProtos;
+static ExitOnError ExitOnErr;
+
 
 Value *LogErrorV(const char *Str)
 {
@@ -546,6 +570,7 @@ Function *PrototypeAST::codegen()
     {
         Arg.setName(Args[Idx++]);
     }
+
     return F;
 }
 
@@ -584,6 +609,9 @@ Function *FunctionAST::codegen()
         // Validate the generated code, checking for consistancy
         verifyFunction(*TheFunction);
 
+        // Optimize the function
+        TheFPM->run(*TheFunction, *TheFAM);
+
         return TheFunction;
     }
 
@@ -594,12 +622,45 @@ Function *FunctionAST::codegen()
 
 /////////////////////////////////////////////////////////////// Top Level Parser and JIT Driver
 
-static void InitializeModule()
+static void InitializeModuleAndManagers(void)
 {
     TheContext = std::make_unique<LLVMContext>();
-    TheModule = std::make_unique<Module>("my cool jit", *TheContext);
+    TheModule = std::make_unique<Module>("KaleidoscopeJIT", *TheContext);
+    TheModule->setDataLayout(TheJIT->getDataLayout());
 
     Builder = std::make_unique<IRBuilder<>>(*TheContext);
+
+    // Create new pass and analysis managers
+    TheFPM = std::make_unique<FunctionPassManager>(TheModule.get());
+    TheLAM = std::make_unique<LoopAnalysisManager>();
+    TheFAM = std::make_unique<FunctionAnalysisManager>();
+    TheCGAM = std::make_unique<CGSCCAnalysisManager>();
+    TheMAM = std::make_unique<ModuleAnalysisManager>();
+    ThePIC = std::make_unique<PassInstrumentationCallbacks>();
+    TheSI = std::make_unique<StandardInstrumentations>(*TheContext, /*DebugLogging*/ true);
+
+    TheSI->registerCallbacks(*ThePIC, TheMAM.get());
+
+
+    //Add transform passes
+    // Simple "peephole" optimizations and bit-twidddling optzns.
+    TheFPM->addPass(InstCombinePass());
+
+    // Reassociate expressions
+    TheFPM->addPass(ReassociatePass());
+
+    // Eliminate Common SubExpressions
+    TheFPM->addPass(GVNPass());
+
+    // Simplify the control flow graph (deleting unreachable blocks, etc)
+    TheFPM->addPass(SimplifyCFGPass());
+
+    // Register analysis passes used in these transform passes.
+    PassBuilder PB;
+    PB.registerModuleAnalyses(*TheMAM);
+    PB.registerFunctionAnalyses(*TheFAM);
+    PB.crossRegisterProxies(*TheLAM,*TheFAM,*TheCGAM, *TheMAM);
+
 }
 
 static void HandleDefinition()
@@ -642,13 +703,27 @@ static void HandleTopLevelExpression()
 {
     if (auto FnAST = ParseTopLevelExpr())
     {
-        if (auto *FnIR = FnAST->codegen())
+        if (FnAST->codegen())
         {
-            fprintf(stderr, "Read top-level expression:");
-            FnIR->print(errs());
-            fprintf(stderr, "\n");
+            // Create a ResourceTracker to track JIT'd memeory allocatiated to our
+            // anonymous ecpression so we can free it after exicuting
+            auto RT = TheJIT->getMainJITDylib().createResourceTracker();
 
-            FnIR->eraseFromParent();
+            auto TSM = ThreadSafeModule(std::move(TheModule), std::move(TheContext));
+            ExitOnErr(TheJIT->addModule(std::move(TSM), RT));
+            InitializeModuleAndManagers();
+
+            //Search the JIT for the __anon epr symbol
+            auto ExprSymbol = ExitOnErr(TheJIT->lookup("__anon_expr"));
+            assert(ExprSymbol && "Function not found");
+
+            // Get the symbol's address and cast it to the right type (takes no arguments,
+            // returns a double) so we can call it as a native function
+            double (*FP)() = ExprSymbol.getAddress().toPtr<double (*)()>();
+            fprintf(stderr, "Evaluated to %f\n", FP());
+
+            //Delete the anonymous epression module from the JIT
+            ExitOnErr(RT->remove());
         }
     }
     else
@@ -683,8 +758,14 @@ static void DriverLoop()
     }
 }
 
+
 int main()
 {
+    InitializeNativeTarget();
+    InitializeNativeTargetAsmPrinter();
+    InitializeNativeTargetAsmParser();
+
+
     // Set up binary operator precedence
     BinopPrecedence['<'] = 10;
     BinopPrecedence['>'] = 10;
@@ -697,8 +778,10 @@ int main()
     fprintf(stderr, "ready> ");
     getNextToken();
 
+    TheJIT = std::make_unique<KaleidoscopeJIT>();
+
     // Make the module, which holds all the code
-    InitializeModule();
+    //InitializeModule();
 
     // Run the driver
     DriverLoop();

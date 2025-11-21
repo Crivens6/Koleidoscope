@@ -2,7 +2,7 @@
 # Koleidoscope
 
 # compile
-clang++ -g -O3 toy.cpp 'llvm-config --cxxflags --ldflags --system-libs core' -o toy
+clang++ -g toy.cpp `llvm-config --cxxflags --ldflags --system-libs --libs core orcjit native` -O3 -o toyJIT
 
 # run (part 1&2)
 ./a.out
