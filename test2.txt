@@ -1,0 +1,5 @@
+def foo(x) x+3;
+def boo(x) x*3;
+foo(2);
+boo(2);
+foo(2) + boo(2);

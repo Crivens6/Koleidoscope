@@ -631,7 +631,7 @@ static void InitializeModuleAndManagers(void)
     Builder = std::make_unique<IRBuilder<>>(*TheContext);
 
     // Create new pass and analysis managers
-    TheFPM = std::make_unique<FunctionPassManager>(TheModule.get());
+    TheFPM = std::make_unique<FunctionPassManager>(); ////////////// ERROR
     TheLAM = std::make_unique<LoopAnalysisManager>();
     TheFAM = std::make_unique<FunctionAnalysisManager>();
     TheCGAM = std::make_unique<CGSCCAnalysisManager>();
@@ -714,8 +714,10 @@ static void HandleTopLevelExpression()
             InitializeModuleAndManagers();
 
             //Search the JIT for the __anon epr symbol
+            fprintf(stderr, "HERE!!!\n");
             auto ExprSymbol = ExitOnErr(TheJIT->lookup("__anon_expr"));
-            assert(ExprSymbol && "Function not found");
+            fprintf(stderr, "THERE!!!\n");
+            //assert(ExprSymbol && "Function not found");                            ////////////////ERROR
 
             // Get the symbol's address and cast it to the right type (takes no arguments,
             // returns a double) so we can call it as a native function
@@ -778,16 +780,16 @@ int main()
     fprintf(stderr, "ready> ");
     getNextToken();
 
-    TheJIT = std::make_unique<KaleidoscopeJIT>();
+    TheJIT = ExitOnErr(KaleidoscopeJIT::Create());
 
     // Make the module, which holds all the code
-    //InitializeModule();
+    InitializeModuleAndManagers();
 
     // Run the driver
     DriverLoop();
 
     // Print out the generated code
-    TheModule->print(errs(), nullptr);
+    //TheModule->print(errs(), nullptr);
 
     return 0;
 }
