@@ -46,7 +46,7 @@ enum Token
 
     // Primary
     tok_identifier = -4,
-    tok_number = 05,
+    tok_number = -5,
 };
 
 static std::string IdentifierStr; // Filled in if tok_identifier
@@ -74,23 +74,18 @@ static int gettok()
 
         if (IdentifierStr == "def")
         {
-
-            // fprintf(stderr, "D %s\n", IdentifierStr.c_str());
             return tok_def;
         }
         if (IdentifierStr == "extern")
         {
-            // fprintf(stderr, "E %s\n", IdentifierStr.c_str());
             return tok_extern;
         }
-        // fprintf(stderr, "I %s\n", IdentifierStr.c_str());
         return tok_identifier;
     }
 
     // Number
     if (isdigit(LastChar) || LastChar == '.')
     { /// Extend to error handle multiple decimal points
-        // fprintf(stderr, "N");
         std::string NumStr;
         do
         {
@@ -104,7 +99,6 @@ static int gettok()
     // Comment
     if (LastChar == '#')
     {
-        // fprintf(stderr, "#");
         //  Line comment
         do
         {
@@ -119,7 +113,6 @@ static int gettok()
     // End of File
     if (LastChar == EOF)
     {
-        // fprintf(stderr, "E");
         return tok_eof;
     }
 
@@ -131,7 +124,7 @@ static int gettok()
 
 /////////////////////////////////////////////////////////////// Parser
 
-/// ExprAST - Base class expresison node
+/// ExprAST - Base class expression node
 class ExprAST
 {
 public:
@@ -181,7 +174,7 @@ public:
     Value *codegen() override;
 };
 
-/// PrototypeAST - Node represents the "prototype" for a function, caputring its name and argument names (and therefor the number of arguments)
+/// PrototypeAST - Node represents the "prototype" for a function, capturing its name and argument names (and therefor the number of arguments)
 class PrototypeAST
 {
     std::string Name;
@@ -243,7 +236,7 @@ static std::unique_ptr<ExprAST> ParseParenExpr()
         return nullptr;
     }
 
-    if (CurTok != '(')
+    if (CurTok != ')')
     {
         return LogError("Expected ')'");
     }
@@ -294,7 +287,7 @@ static std::unique_ptr<ExprAST> ParseIdentifierExpr()
 
     getNextToken();
 
-    // Create a call node inculding the function name and arguments
+    // Create a call node including the function name and arguments
     return std::make_unique<CallExprAST>(IdName, std::move(Args));
 }
 
@@ -336,7 +329,7 @@ static std::unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec, std::unique_ptr<Expr
     {
         int TokPrec = GetTokPrecedence();
 
-        // if the new token precidence is less than the LHS precidence, return the LHS as a finished node
+        // if the new token precedence is less than the LHS precedence, return the LHS as a finished node
         if (TokPrec < ExprPrec)
         {
             return LHS;
@@ -354,7 +347,7 @@ static std::unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec, std::unique_ptr<Expr
 
         int NextPrec = GetTokPrecedence();
 
-        // If the current precidence is less than the next, recursivly expand the RHS node as far as it'll go
+        // If the current precedence is less than the next, recursively expand the RHS node as far as it'll go
         if (TokPrec < NextPrec)
         {
             RHS = ParseBinOpRHS(TokPrec + 1, std::move(RHS));
@@ -381,39 +374,28 @@ static std::unique_ptr<ExprAST> ParseExpression()
 
 static std::unique_ptr<PrototypeAST> ParsePrototype()
 {
-    // fprintf(stdout, "TestING c\n");
     if (CurTok != tok_identifier)
     {
-        // fprintf(stdout, "TestING d\n");
-        //  fprintf(stderr, "T: %d C: %c", CurTok, CurTok);
         return LogErrorP("Expected function name in prototype");
     }
     // Get the name of the function
     std::string FnName = IdentifierStr;
     getNextToken();
-    // fprintf(stdout, "TestING e\n");
     if (CurTok != '(')
     {
-        // fprintf(stdout, "TestING f\n");
-        //  fprintf(stderr, "T: %d C: %c", CurTok, CurTok);
         return LogErrorP("Expected '(' in prototype");
     }
-    // fprintf(stdout, "TestING g\n");
     //  Get all the argument names
     std::vector<std::string> ArgNames;
     while (getNextToken() == tok_identifier)
     {
         ArgNames.push_back(IdentifierStr);
     }
-    // Get the close Parenthesi
-    // fprintf(stdout, "TestING h\n");
+    // Get the close Parenthesis
     if (CurTok != ')')
     {
-        // fprintf(stdout, "TestING i\n");
-        //  fprintf(stderr, "T: %d C: %c", CurTok, CurTok);
         return LogErrorP("Expected ')' in prototype");
     }
-    // fprintf(stdout, "TestING j\n");
     getNextToken();
     // Return a node containing a function name and its argument names
     return std::make_unique<PrototypeAST>(FnName, std::move(ArgNames));
@@ -422,23 +404,18 @@ static std::unique_ptr<PrototypeAST> ParsePrototype()
 static std::unique_ptr<FunctionAST> ParseDefinition()
 {
 
-    // fprintf(stdout, "TestING!");
     getNextToken();
-    // fprintf(stdout, "TestINGA");
     //  Get the prototype
     auto Proto = ParsePrototype();
     if (!Proto)
     {
-        // fprintf(stdout, "TestING B");
         return nullptr;
     }
 
-    // fprintf(stdout, "TestING2");
     //  Get the following expression
     if (auto E = ParseExpression())
     {
-        // fprintf(stdout, "TestING");
-        //  Return a function node pairing the prototype with the follwing expression as its definition
+        //  Return a function node pairing the prototype with the following expression as its definition
         return std::make_unique<FunctionAST>(std::move(Proto), std::move(E));
     }
     return nullptr;
@@ -457,7 +434,7 @@ static std::unique_ptr<FunctionAST> ParseTopLevelExpr()
     if (auto E = ParseExpression())
     {
         // Create an anonymous proto
-        auto Proto = std::make_unique<PrototypeAST>("", std::vector<std::string>());
+        auto Proto = std::make_unique<PrototypeAST>("__anon_expr", std::vector<std::string>());  /// CHANGED in step 3 from step 2 without instruction
         // Return the top node by pairing the anonymous proto with the top level expression
         return std::make_unique<FunctionAST>(std::move(Proto), std::move(E));
     }
@@ -486,6 +463,24 @@ Value *LogErrorV(const char *Str)
     LogError(Str);
     return nullptr;
 }
+
+Function *getFunction(std::string Name){
+    // Check current module for function
+    if(auto *F = TheModule->getFunction(Name)){
+        return F;
+    }
+
+    // Check if we can codegen from existing declaration
+    auto FI = FunctionProtos.find(Name);
+    if(FI!=FunctionProtos.end()){
+        return FI->second->codegen();
+    }
+
+    // Does not exist
+    return nullptr;
+}
+
+
 
 Value *NumberExprAST::codegen()
 {
@@ -535,7 +530,8 @@ Value *BinaryExprAST::codegen()
 
 Value *CallExprAST::codegen()
 {
-    Function *CalleeF = TheModule->getFunction(Callee);
+    // Lookup name in global module table
+    Function *CalleeF = getFunction(Callee);
     if (!CalleeF)
     {
         return LogErrorV("Unknown function referenced");
@@ -543,14 +539,14 @@ Value *CallExprAST::codegen()
 
     if (CalleeF->arg_size() != Args.size())
     {
-        return LogErrorV("Incorect number of arguments passed");
+        return LogErrorV("Incorrect number of arguments passed");
     }
 
     std::vector<Value *> ArgsV;
     for (unsigned i = 0, e = Args.size(); i != e; ++i)
     {
         ArgsV.push_back(Args[i]->codegen());
-        if (!Args.back())
+        if (!ArgsV.back())
         {
             return nullptr;
         }
@@ -574,50 +570,40 @@ Function *PrototypeAST::codegen()
     return F;
 }
 
-Function *FunctionAST::codegen()
-{
-    Function *TheFunction = TheModule->getFunction(Proto->getName());
-
-    if (!TheFunction)
-    {
-        TheFunction = Proto->codegen();
-    }
-
-    if (!TheFunction)
-    {
-        return nullptr;
-    }
-
-    if (!TheFunction->empty())
-    {
-        return (Function *)LogErrorV("Function cannot be redefined.");
-    }
-
-    BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", TheFunction);
-    Builder->SetInsertPoint(BB);
-
-    NamedValues.clear();
-    for (auto &Arg : TheFunction->args())
-    {
-        NamedValues[std::string(Arg.getName())] = &Arg;
-    }
-
-    if (Value *RetVal = Body->codegen())
-    {
-        // Finish off the function
-        Builder->CreateRet(RetVal);
-        // Validate the generated code, checking for consistancy
-        verifyFunction(*TheFunction);
-
-        // Optimize the function
-        TheFPM->run(*TheFunction, *TheFAM);
-
-        return TheFunction;
-    }
-
-    // Error reading body, remove funciton
-    TheFunction->eraseFromParent();
+Function *FunctionAST::codegen() {
+  // Transfer ownership of the prototype to the FunctionProtos map, but keep a
+  // reference to it for use below.
+  auto &P = *Proto;
+  FunctionProtos[Proto->getName()] = std::move(Proto);
+  Function *TheFunction = getFunction(P.getName());
+  if (!TheFunction)
     return nullptr;
+
+  // Create a new basic block to start insertion into.
+  BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", TheFunction);
+  Builder->SetInsertPoint(BB);
+
+  // Record the function arguments in the NamedValues map.
+  NamedValues.clear();
+  for (auto &Arg : TheFunction->args())
+    NamedValues[std::string(Arg.getName())] = &Arg;
+
+  if (Value *RetVal = Body->codegen()) {
+    // Finish off the function.
+    Builder->CreateRet(RetVal);
+
+    // Validate the generated code, checking for consistency.
+    verifyFunction(*TheFunction);
+
+    // Run the optimizer on the function.
+    TheFPM->run(*TheFunction, *TheFAM);
+
+    return TheFunction;
+  }
+
+  // Error reading body, remove function.
+  TheFunction->eraseFromParent();
+  return nullptr;
 }
 
 /////////////////////////////////////////////////////////////// Top Level Parser and JIT Driver
@@ -643,7 +629,7 @@ static void InitializeModuleAndManagers(void)
 
 
     //Add transform passes
-    // Simple "peephole" optimizations and bit-twidddling optzns.
+    // Simple "peephole" optimizations and bit-twiddling optzns.
     TheFPM->addPass(InstCombinePass());
 
     // Reassociate expressions
@@ -672,6 +658,8 @@ static void HandleDefinition()
             fprintf(stderr, "Read function definition:");
             FnIR->print(errs());
             fprintf(stderr, "\n");
+            ExitOnErr(TheJIT->addModule(ThreadSafeModule(std::move(TheModule), std::move(TheContext))));
+            InitializeModuleAndManagers();
         }
     }
     else
@@ -690,6 +678,7 @@ static void HandleExtern()
             fprintf(stderr, "Read extern:");
             FnIR->print(errs());
             fprintf(stderr, "\n");
+            FunctionProtos[ProtoAST->getName()] = std::move(ProtoAST);
         }
     }
     else
@@ -701,27 +690,24 @@ static void HandleExtern()
 
 static void HandleTopLevelExpression()
 {
-    if (auto FnAST = ParseTopLevelExpr())
-    {
-        if (FnAST->codegen())
-        {
-            // Create a ResourceTracker to track JIT'd memeory allocatiated to our
-            // anonymous ecpression so we can free it after exicuting
+    if (auto FnAST = ParseTopLevelExpr()) {
+        if (FnAST->codegen()) {
+            // Create a ResourceTracker to track JIT'd memory allocated to our
+            // anonymous expression -- that way we can free it after executing.
             auto RT = TheJIT->getMainJITDylib().createResourceTracker();
 
             auto TSM = ThreadSafeModule(std::move(TheModule), std::move(TheContext));
             ExitOnErr(TheJIT->addModule(std::move(TSM), RT));
             InitializeModuleAndManagers();
 
-            //Search the JIT for the __anon epr symbol
-            fprintf(stderr, "HERE!!!\n");
+            // Search the JIT for the __anon_expr symbol.
             auto ExprSymbol = ExitOnErr(TheJIT->lookup("__anon_expr"));
-            fprintf(stderr, "THERE!!!\n");
-            //assert(ExprSymbol && "Function not found");                            ////////////////ERROR
+
+            //assert(ExprSymbol && "Function not found");                            //////////////// ERRORs, CHANGED removed from step 4 final
 
             // Get the symbol's address and cast it to the right type (takes no arguments,
             // returns a double) so we can call it as a native function
-            double (*FP)() = ExprSymbol.getAddress().toPtr<double (*)()>();
+            double (*FP)() = ExprSymbol.toPtr<double (*)()>(); ///CHANGED from ExprSymbol.getAddress().toPtr<double (*)()>()
             fprintf(stderr, "Evaluated to %f\n", FP());
 
             //Delete the anonymous epression module from the JIT
