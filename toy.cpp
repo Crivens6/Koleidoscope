@@ -490,6 +490,20 @@ static int GetTokPrecedence()
     }
     return TokPrec;
 }
+static std::unique_ptr<ExprAST> ParseUnary(){
+    // If the current token is not an operator, it must be a primery expr
+    if(!isascii(CurTok) || CurTok ==  '(' || CurTok == ','){
+        return ParsePrimary();
+    }
+
+    // If this is a unary operator, read it
+    int Opc = CurTok;
+    getNextToken();
+    if(auto Operand = ParseUnary()){
+        return std::make_unique<UnaryExprAST>(Opc, std::move(Operand));
+    }
+    return nullptr;
+}
 
 static std::unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec, std::unique_ptr<ExprAST> LHS)
 {
@@ -507,7 +521,7 @@ static std::unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec, std::unique_ptr<Expr
         getNextToken();
 
         // Get the next parsed section as inital RHS
-        auto RHS = ParsePrimary();
+        auto RHS = ParseUnary();
         if (!RHS)
         {
             return nullptr;
@@ -530,24 +544,11 @@ static std::unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec, std::unique_ptr<Expr
     }
 }
 
-static std::unique_ptr<ExprAST> ParseUnary(){
-    // If the current token is not an operator, it must be a primery expr
-    if(!isascii(CurTok) || CurTok ==  '(' || CurTok == ','){
-        return ParsePrimary();
-    }
 
-    // If this is a unary operator, read it
-    int Opc = CurTok;
-    getNextToken();
-    if(auto Operand = ParseUnary()){
-        return std::make_unique<UnaryExprAST>(Opc, std::move(Operand));
-    }
-    return nullptr;
-}
 
 static std::unique_ptr<ExprAST> ParseExpression()
 {
-    auto LHS = ParsePrimary();
+    auto LHS = ParseUnary();
     if (!LHS)
     {
         return nullptr;
